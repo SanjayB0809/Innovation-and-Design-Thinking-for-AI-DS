@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Voice-Controlled Billing System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="bg-gray-100 font-sans p-6">
+  <div id="app" class="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
+
+    <!-- Login -->
+    <div id="loginSection">
+      <h2 class="text-2xl font-bold mb-4">Login</h2>
+      <input id="username" placeholder="Username" class="border p-2 mb-2 w-full rounded" disabled>
+    </div>
+    <div id="passwordSection" style="display:none;">
+      <input id="password" placeholder="Password" class="border p-2 mb-2 w-full rounded" disabled>
+    </div>
+
+    <!-- Customer Details -->
+    <div id="customerDetailsSection" style="display:none;">
+      <h2 class="text-2xl font-bold mb-4">Customer Details</h2>
+      <input id="customerName" placeholder="Name" class="border p-2 mb-2 w-full rounded" disabled>
+      <input id="customerAge" placeholder="Age" class="border p-2 mb-2 w-full rounded" disabled>
+      <input id="customerMobile" placeholder="Mobile" class="border p-2 mb-2 w-full rounded" disabled>
+    </div>
+
+    <!-- Product Section -->
+    <div id="productSection" style="display:none;">
+      <h2 class="text-2xl font-bold mb-4">Select Products (say name)</h2>
+      <div class="grid grid-cols-3 gap-4 mb-4">
+        <!-- Product Buttons (same as before) -->
+        <button class="product-button p-2 border rounded">Apple</button>
+        <button class="product-button p-2 border rounded">Banana</button>
+        <button class="product-button p-2 border rounded">Cherry</button>
+        <button class="product-button p-2 border rounded">Grapes</button>
+        <button class="product-button p-2 border rounded">Mango</button>
+        <button class="product-button p-2 border rounded">Orange</button>
+        <button class="product-button p-2 border rounded">Pineapple</button>
+        <button class="product-button p-2 border rounded">Strawberry</button>
+        <button class="product-button p-2 border rounded">Peach</button>
+        <button class="product-button p-2 border rounded">Pear</button>
+        <button class="product-button p-2 border rounded">Avocado</button>
+        <button class="product-button p-2 border rounded">Watermelon</button>
+        <button class="product-button p-2 border rounded">Coconut</button>
+        <button class="product-button p-2 border rounded">Lemon</button>
+        <button class="product-button p-2 border rounded">Papaya</button>
+      </div>
+      <p id="selectionCount" class="mb-4 font-semibold">Selected Products: 0/5</p>
+    </div>
+
+    <!-- Bill Summary -->
+    <div id="billSummarySection" style="display:none;">
+      <h2 class="text-2xl font-bold mb-4">Bill Summary</h2>
+      <div id="billSummary" class="mb-4"></div>
+      
+      <div id="qrCodeContainer" class="hidden mb-4">
+        <img src="file:///D:/Chad%20Skill%20Development/IDT%20Project/qr%20code.png" alt="QR Code" class="w-48 mx-auto">
+      </div>
+
+      <label class="block mb-2">Select Payment Method:</label>
+      <select id="paymentMethod" class="border p-2 mb-4 w-full rounded">
+        <option value="cash">Cash</option>
+        <option value="card">Card (QR Code)</option>
+      </select>
+
+      <button onclick="finishPurchase()" class="bg-blue-500 text-white px-4 py-2 rounded">Finish</button>
+    </div>
+
+    <!-- Message -->
+    <div id="message" class="mt-4 text-red-500 font-bold hidden"></div>
+  </div>
+
+  <script>
+    let username = '', password = '', customerName = '', customerAge = '', customerMobile = '';
+    let selectedProducts = [], productQuantities = {}, waitingForQuantity = false, currentProductForQuantity = '';
+    let productPrices = {
+      'Apple': 1, 'Banana': 0.5, 'Cherry': 2, 'Grapes': 2.5, 'Mango': 1.5,
+      'Orange': 1, 'Pineapple': 3, 'Strawberry': 1.8, 'Peach': 2, 'Pear': 1.2,
+      'Avocado': 2.5, 'Watermelon': 4, 'Coconut': 3.5, 'Lemon': 0.7, 'Papaya': 2
+    };
+
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'en-US';
+    recognition.continuous = true;
+
+    recognition.onresult = function(event) {
+      const spokenText = event.results[event.resultIndex][0].transcript.toLowerCase().trim();
+      console.log("Voice:", spokenText);
+
+      if (spokenText === "exit") return alert("Exiting!");
+
+      if (waitingForQuantity && currentProductForQuantity) {
+        const qty = parseInt(spokenText.match(/\d+/));
+        if (!isNaN(qty)) {
+          productQuantities[currentProductForQuantity] = qty;
+          waitingForQuantity = false;
+          currentProductForQuantity = '';
+          updateSelectionCount();
+          return;
+        } else {
+          alert("Please say a valid number.");
+          return;
+        }
+      }
+
+      if (!username) {
+        document.getElementById('username').value = spokenText;
+        username = spokenText;
+        document.getElementById('passwordSection').style.display = 'block';
+      } else if (!password) {
+        document.getElementById('password').value = spokenText;
+        password = spokenText;
+        validateLogin();
+      } else if (!customerName) {
+        document.getElementById('customerName').value = spokenText;
+        customerName = spokenText;
+      } else if (!customerAge) {
+        document.getElementById('customerAge').value = spokenText;
+        customerAge = spokenText;
+      } else if (!customerMobile) {
+        document.getElementById('customerMobile').value = spokenText;
+        customerMobile = spokenText;
+        completeCustomerDetails();
+      } else if (spokenText === "that's all") {
+        goToBillSummary();
+      } else if (spokenText === "complete purchase" || spokenText === "finish purchase") {
+        finishPurchase();
+      } else {
+        selectProductByVoice(spokenText);
+      }
+
+      if (document.getElementById('billSummarySection').style.display !== 'none') {
+        if (spokenText.includes("cash")) {
+          selectPaymentMethod('cash');
+        } else if (spokenText.includes("card") || spokenText.includes("qr code")) {
+          selectPaymentMethod('card');
+        }
+      }
+    };
+
+    function validateLogin() {
+      if (username && password) {
+        alert("Login successful!");
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('passwordSection').style.display = 'none';
+        document.getElementById('customerDetailsSection').style.display = 'block';
+      }
+    }
+
+    function completeCustomerDetails() {
+      alert(`Customer: ${customerName}, Age: ${customerAge}, Mobile: ${customerMobile}`);
+      document.getElementById('customerDetailsSection').style.display = 'none';
+      document.getElementById('productSection').style.display = 'block';
+    }
+
+    function selectProductByVoice(word) {
+      document.querySelectorAll('.product-button').forEach(btn => {
+        const name = btn.innerText.toLowerCase();
+        if (word.includes(name)) toggleProductSelection(btn, btn.innerText);
+      });
+    }
+
+    function toggleProductSelection(button, product) {
+      const isSelected = button.classList.contains('bg-green-500');
+      if (!isSelected && selectedProducts.length < 5) {
+        button.classList.add('bg-green-500', 'text-white');
+        selectedProducts.push(product);
+        askForQuantity(product);
+      } else if (isSelected) {
+        button.classList.remove('bg-green-500', 'text-white');
+        selectedProducts = selectedProducts.filter(p => p !== product);
+        delete productQuantities[product];
+      }
+      updateSelectionCount();
+    }
+
+    function askForQuantity(product) {
+      waitingForQuantity = true;
+      currentProductForQuantity = product;
+      speak(`How many ${product}s do you want?`);
+    }
+
+    function updateSelectionCount() {
+      document.getElementById('selectionCount').innerText = `Selected Products: ${selectedProducts.length}/5`;
+    }
+
+    function speak(text) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function goToBillSummary() {
+      document.getElementById('productSection').style.display = 'none';
+      document.getElementById('billSummarySection').style.display = 'block';
+      const summaryDiv = document.getElementById('billSummary');
+      summaryDiv.innerHTML = '';
+      let total = 0;
+      selectedProducts.forEach(p => {
+        const q = productQuantities[p] || 0;
+        const price = productPrices[p];
+        const subtotal = q * price;
+        total += subtotal;
+        summaryDiv.innerHTML += `<div>${p}: ${q} × $${price} = $${subtotal.toFixed(2)}</div>`;
+      });
+      summaryDiv.innerHTML += `<div class="mt-4 font-bold text-lg">Total: $${total.toFixed(2)}</div>`;
+    }
+
+    function finishPurchase() {
+      const payment = document.getElementById('paymentMethod').value;
+      const billRows = [];
+      const now = new Date().toLocaleString();
+
+      selectedProducts.forEach(product => {
+        const qty = productQuantities[product] || 0;
+        billRows.push({
+          Timestamp: now,
+          Username: username,
+          Name: customerName,
+          Age: customerAge,
+          Mobile: customerMobile,
+          Product: product,
+          Quantity: qty,
+          PaymentMethod: payment
+        });
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(billRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Bill");
+      XLSX.writeFile(workbook, "CommandCart_Bill.xlsx");
+
+      if (payment === 'card') {
+        document.getElementById('qrCodeContainer').classList.remove('hidden');
+        speak("QR Code displayed. Thank you for shopping!");
+      } else {
+        alert("Purchase completed with cash!");
+        speak("Cash payment selected. Thank you!");
+        location.reload();
+      }
+    }
+
+    function selectPaymentMethod(method) {
+      if (method === 'card') {
+        document.getElementById('paymentMethod').value = 'card';
+        document.getElementById('qrCodeContainer').classList.remove('hidden');
+        speak("You have selected QR code payment.");
+      } else {
+        document.getElementById('paymentMethod').value = 'cash';
+        document.getElementById('qrCodeContainer').classList.add('hidden');
+        speak("You have selected cash payment.");
+      }
+    }
+
+    recognition.start();
+  </script>
+</body>
+</html>
